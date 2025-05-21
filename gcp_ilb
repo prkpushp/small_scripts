@@ -1,11 +1,54 @@
-Create GCP ILB:
+Create GCP ILB and add an instance group:
 
-gcloud compute forwarding-rules create pushp-test-ilb01 \
+#!/bin/bash
+
+# === Required Inputs ===
+INSTANCE_NAME="$1"
+ILB_NAME="pushp-test-ilb"
+PORT=53
+PROTOCOL="UDP"
+HEALTH_CHECK="kcap01-dns-app-hck-53"  # Replace if needed
+
+# === Derived Metadata ===
+ZONE=$(gcloud compute instances describe "$INSTANCE_NAME" --format="value(zone)")
+ZONE=$(basename "$ZONE")  # Converts full path to just 'us-central1-a'
+REGION=$(echo "$ZONE" | sed 's/-[a-z]$//')
+
+# Get the instance group name containing the instance
+INSTANCE_GROUP=$(gcloud compute instance-groups list --filter="zone:($ZONE)" --format="value(name)" | while read ig; do
+  gcloud compute instance-groups list-instances "$ig" --zone="$ZONE" --format="value(instance)" | grep -q "$INSTANCE_NAME" && echo "$ig" && break
+done)
+
+# Network and Subnet
+NETWORK=$(gcloud compute instances describe "$INSTANCE_NAME" --zone="$ZONE" --format="value(networkInterfaces[0].network)")
+SUBNET=$(gcloud compute instances describe "$INSTANCE_NAME" --zone="$ZONE" --format="value(networkInterfaces[0].subnetwork)")
+
+# Output
+echo "ZONE: $ZONE"
+echo "REGION: $REGION"
+echo "INSTANCE_GROUP: $INSTANCE_GROUP"
+echo "NETWORK: $NETWORK"
+echo "SUBNET: $SUBNET"
+
+# === Create Backend Service ===
+gcloud compute backend-services create "${ILB_NAME}-backend" \
   --load-balancing-scheme=internal \
-  --network=inf-net01 \
-  --subnet=snet01 \
-  --region=us-east1 \
-  --ip-protocol=UDP \
-  --ports=53 \
-  --backend-service=pushp-test-ilb01-backend \
-  --no-enable-logging
+  --protocol=$PROTOCOL \
+  --region=$REGION \
+  --health-checks="$HEALTH_CHECK"
+
+# === Add Backend ===
+gcloud compute backend-services add-backend "${ILB_NAME}-backend" \
+  --instance-group="$INSTANCE_GROUP" \
+  --instance-group-zone="$ZONE" \
+  --region="$REGION"
+
+# === Create ILB ===
+gcloud compute forwarding-rules create "$ILB_NAME" \
+  --load-balancing-scheme=internal \
+  --network="$NETWORK" \
+  --subnet="$SUBNET" \
+  --region="$REGION" \
+  --ip-protocol=$PROTOCOL \
+  --ports=$PORT \
+  --backend-service="${ILB_NAME}-backend"
