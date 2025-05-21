@@ -1,0 +1,11 @@
+Create GCP ILB:
+
+gcloud compute forwarding-rules create pushp-test-ilb01 \
+  --load-balancing-scheme=internal \
+  --network=inf-net01 \
+  --subnet=snet01 \
+  --region=us-east1 \
+  --ip-protocol=UDP \
+  --ports=53 \
+  --backend-service=pushp-test-ilb01-backend \
+  --no-enable-logging
